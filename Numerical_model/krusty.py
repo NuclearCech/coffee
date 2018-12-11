@@ -12,6 +12,7 @@ PRKE Finite Difference for KRUSTY KRAB REACTOR
 """
 
 class krusty():
+    insert = False
     def __init__(self):
         self.n0 = 1                     # initial neutron population
         enrich = 0.93155                # U-235 enrichment
@@ -39,6 +40,7 @@ class krusty():
         # Initial Precursor Vectors
         self.c0 = [[beta*self.n0/(self.L*lam)] for beta, lam in zip(self.beta_i, self.lam)]
         self.rho0 = rho*self.beta
+        self.ref_rho = self.rho0
         # # K-factor
         self.Kf = self.n_W/self.C_th            # k-factor
 
@@ -62,6 +64,7 @@ class krusty():
         A_ch = np.pi*D_ch**2/4              # cross-sectional area of heat pipe
         self.A_chs = N_ch * A_ch            # Total cross-sect. area of heat pipes
         self.Tf0 = float(20)                # Initial Fuel Temperature [C]
+        self.ref_Tf = self.Tf0              # reference temperature for rho
         dens_f = self.dens(self.Tf0)        # [g/cc]
         cp_f = self.cp(self.Tf0)            # [J/g-C]
         # # Thermal Capacity
@@ -71,12 +74,11 @@ class krusty():
         hgt = 0.25                          # Reactor height [m]
         self.R_f0 = np.log(r_fo/r_fi)/(2*np.pi*hgt) # resitance term
 
-    def RungeKutta4(self):        
+    def solver(self):        
         Ttime = float(20*unit['sec_min'])                  # Simulation Time
         dt = 0.01                           # Time step size
         tsec = np.arange(0, Ttime+dt, dt)   # time vector
         rho = [self.rho0]                   # value vectors
-        rho_j0 = rho[0]
         T_0 = 20
         rhof = [0]
         Tf = [self.Tf0]
@@ -86,15 +88,15 @@ class krusty():
         order = 4                           # order of approach
         for ind, t in enumerate(tsec[1:]):
             print(t,Tf[-1],rho[-1])
+            n_old = n[-1]
+            c_old = [x[-1] for x in c]
+            Tf_old = Tf[-1]
+            Tcold = Tc[-1]
+            rho_old = rho[-1]
+            [n_new, c_new, Tf_new, rho_new] = self.RungeKutta4(n_old,c_old,Tf_old,rho_old,dt)
             # initial values
-            n_j0 = n[-1]
-            c_j0 = [x[-1] for x in c]
-            T_j0 = Tf[-1]
-            Tcj0 = Tc[-1]
-            if T_j0 >= 350:
-                rho_j0 = 0
-                T_0 = 400
-            rho_j = self.rho_feedback(rho_j0,T_j0,T_0)
+
+            # rho_j = self.rho_feedback(rho_j0,T_j0,T_0)
             # print(t,n_j0,T_j0,rho_j0)
             # if T_j0 >= 400:
                 # rho0 = 0
@@ -174,6 +176,25 @@ class krusty():
                 c[i].append(clast[i]+dt/2*(self.fci(i, n[-1], clast[i],
                                                     rho[-1]) + self.fci(i, n_pred, c_pred[i], rho[-1])))
 
+    def RungeKutta4(self,n0,c0,Tf0,rho0,dt):
+        """ RK4 SOLVER """
+        order = 4
+        dn = []; dc = []; dTf = []
+        h = np.multiply([0,1/2,1/2,1],dt)
+        nj = n0
+        cj = c0
+        Tfj = Tf0
+        rhoj = self.rho_feedback(rho0,Tf0)
+        for i in range(order):
+            nj = nj*h
+            cj = np.multiple(cj,h)
+            Tfj = 
+            dn.append(self.fn(nj, cj, rho0))
+            dc.append(self.fc(nj, cj, rho0))
+            dTf.append(self.fTemp(nj,Tfj))
+            
+            
+
     def fn(self, n, c, rho):
         """ Neutron derivative function """
         return (rho-self.beta)/self.L*n + np.dot(c, self.lam)
@@ -215,9 +236,12 @@ class krusty():
         print(T,'\t',rho_new)
         return rho_new
     
-    def rho_feedback(self,rho0,T,T0):
-        
-        return rho0 + self.RTC(T)*(T-T0)
+    def rho_feedback(self,rho,T):
+        if T >= 350 and self.insert == False:
+            insert = True
+            self.ref_rho = rho - self.ref_rho
+            self.ref_Tf = 350
+        return self.ref_rho + self.RTC(T)*(T-self.ref_Tf)
 
     def RTC(self, T):
         """ Fuel Temperautre Reactivity Coeficient [K^-1] """
@@ -279,7 +303,7 @@ def main():
     start = time.time()
     kilo = krusty()
     # kilo.Heun()
-    kilo.RungeKutta4()
+    kilo.solver()
     end = time.time()
     print("Calculation time: %0.f" % (end-start))
 
